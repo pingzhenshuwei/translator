@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>翻譯準確度評分</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      font-family: "Microsoft JhengHei", "微軟正黑體", -apple-system, sans-serif;
+      background-color: #2c3e50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 32px 24px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    h1 {
+      font-size: 1.3em;
+      color: #333;
+      margin: 0 0 24px 0;
+    }
+
+    .star-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .star {
+      font-size: 2.8em;
+      color: #d0d0d0;
+      cursor: pointer;
+      line-height: 1;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.1s, color 0.15s;
+      user-select: none;
+    }
+
+    .star.filled {
+      color: #FFB400;
+    }
+
+    .star:active {
+      transform: scale(1.2);
+    }
+
+    .comment-input {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 1.05em;
+      padding: 14px;
+      border: 2px solid #ccc;
+      border-radius: 12px;
+      font-family: inherit;
+      margin-bottom: 20px;
+    }
+
+    .submit-btn {
+      font-size: 1.1em;
+      padding: 12px 40px;
+      border: none;
+      border-radius: 24px;
+      cursor: pointer;
+      color: white;
+      font-weight: bold;
+      background-color: #1565C0;
+      width: 100%;
+    }
+
+    .submit-btn:disabled {
+      background-color: #bbb;
+      cursor: default;
+    }
+
+    .thanks-view {
+      display: none;
+    }
+
+    .thanks-view.visible {
+      display: block;
+    }
+
+    .form-view.hidden {
+      display: none;
+    }
+
+    .thanks-icon {
+      font-size: 3em;
+      margin-bottom: 12px;
+    }
+
+    .thanks-text {
+      font-size: 1.2em;
+      color: #333;
+    }
+
+    .error-text {
+      color: #c0392b;
+      font-size: 0.9em;
+      margin-top: 12px;
+      display: none;
+    }
+
+    .error-text.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="form-view" id="form-view">
+      <h1 id="prompt-label">Please rate the translation accuracy</h1>
+      <div class="star-row" id="star-row">
+        <span class="star" data-value="1" onclick="selectStar(1)">★</span>
+        <span class="star" data-value="2" onclick="selectStar(2)">★</span>
+        <span class="star" data-value="3" onclick="selectStar(3)">★</span>
+        <span class="star" data-value="4" onclick="selectStar(4)">★</span>
+        <span class="star" data-value="5" onclick="selectStar(5)">★</span>
+      </div>
+      <input type="text" class="comment-input" id="comment-input" autocomplete="off">
+      <button class="submit-btn" id="submit-btn" onclick="submitRating()" disabled>Submit</button>
+      <div class="error-text" id="error-text">Failed to submit, please try again.</div>
+    </div>
+
+    <div class="thanks-view" id="thanks-view">
+      <div class="thanks-icon">✅</div>
+      <div class="thanks-text" id="thanks-text">Thank you for your feedback</div>
+    </div>
+  </div>
+
+  <script>
+    // 跟 index.html / Code.gs 用同一組值，三邊要保持一致
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbwelifoH99yjFvjMIY_vraVf4LiRxypJ1-wKAWXQy1wJussTI58GALefPker17Lqlg/exec";
+    const APP_SECRET = "bc2ebd814749b213873005714e87af6d";
+
+    const promptLabels = {
+      "zh-TW": "請為本次翻譯準確度評分",
+      en: "Please rate the translation accuracy",
+      ja: "翻訳の正確さを評価してください",
+      ko: "번역의 정확도를 평가해 주세요",
+      vi: "Vui lòng đánh giá độ chính xác của bản dịch",
+      id: "Silakan nilai keakuratan terjemahan",
+      th: "กรุณาให้คะแนนความถูกต้องของการแปล",
+      fil: "Paki-rate ang katumpakan ng pagsasalin",
+      km: "សូមវាយតម្លៃភាពត្រឹមត្រូវនៃការបកប្រែ",
+      my: "ဘာသာပြန်ဆိုမှု၏ တိကျမှုကို အဆင့်သတ်မှတ်ပေးပါ",
+      ar: "يرجى تقييم دقة الترجمة"
+    };
+
+    const thanksLabels = {
+      "zh-TW": "感謝您的評分",
+      en: "Thank you for your feedback",
+      ja: "評価ありがとうございました",
+      ko: "평가해 주셔서 감사합니다",
+      vi: "Cảm ơn bạn đã đánh giá",
+      id: "Terima kasih atas penilaian Anda",
+      th: "ขอบคุณสำหรับการให้คะแนน",
+      fil: "Salamat sa iyong rating",
+      km: "សូមអរគុណសម្រាប់ការវាយតម្លៃ",
+      my: "အဆင့်သတ်မှတ်ပေးမှုအတွက် ကျေးဇူးတင်ပါသည်",
+      ar: "شكرًا لتقييمك"
+    };
+
+    const commentPlaceholders = {
+      "zh-TW": "有其他意見嗎？(選填)",
+      en: "Additional comments (optional)",
+      ja: "他にご意見があれば（任意）",
+      ko: "추가 의견이 있으신가요? (선택 사항)",
+      vi: "Bạn có góp ý gì thêm không? (không bắt buộc)",
+      id: "Ada komentar tambahan? (opsional)",
+      th: "มีความคิดเห็นเพิ่มเติมไหม (ไม่บังคับ)",
+      fil: "May karagdagang puna ka ba? (opsyonal)",
+      km: "មានមតិបន្ថែមទេ? (មិនចាំបាច់)",
+      my: "အခြားထင်မြင်ချက် ရှိပါသလား (မဖြည့်လည်းရသည်)",
+      ar: "هل لديك تعليقات إضافية؟ (اختياري)"
+    };
+
+    const submitLabels = {
+      "zh-TW": "送出",
+      en: "Submit",
+      ja: "送信",
+      ko: "제출",
+      vi: "Gửi",
+      id: "Kirim",
+      th: "ส่ง",
+      fil: "Ipasa",
+      km: "ផ្ញើ",
+      my: "ပို့ရန်",
+      ar: "إرسال"
+    };
+
+    const errorLabels = {
+      "zh-TW": "送出失敗，請再試一次。",
+      en: "Failed to submit, please try again.",
+      ja: "送信に失敗しました。もう一度お試しください。",
+      ko: "제출에 실패했습니다. 다시 시도해 주세요.",
+      vi: "Gửi thất bại, vui lòng thử lại.",
+      id: "Gagal mengirim, silakan coba lagi.",
+      th: "ส่งไม่สำเร็จ กรุณาลองอีกครั้ง",
+      fil: "Nabigo ang pagpapadala, pakisubukan muli.",
+      km: "បរាជ័យក្នុងការផ្ញើ សូមព្យាយាមម្តងទៀត។",
+      my: "ပို့ဆောင်မှု မအောင်မြင်ပါ၊ ထပ်စမ်းကြည့်ပါ။",
+      ar: "فشل الإرسال، يرجى المحاولة مرة أخرى."
+    };
+
+    // 從網址取得 lang 參數（由 index.html 產生 QR Code 時帶入），沒有的話預設英文
+    function getLangFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const lang = params.get('lang');
+      return lang && promptLabels[lang] ? lang : 'en';
+    }
+
+    const currentLang = getLangFromUrl();
+    let selectedRatingValue = 0;
+
+    function applyLanguage() {
+      document.getElementById('prompt-label').innerText = promptLabels[currentLang];
+      document.getElementById('thanks-text').innerText = thanksLabels[currentLang];
+      document.getElementById('error-text').innerText = errorLabels[currentLang];
+
+      const commentInput = document.getElementById('comment-input');
+      commentInput.placeholder = commentPlaceholders[currentLang];
+      // lang/dir 屬性讓手機自己的螢幕鍵盤盡量切換到對應語言（阿拉伯文另外處理書寫方向）
+      commentInput.lang = currentLang;
+      commentInput.dir = (currentLang === 'ar') ? 'rtl' : 'ltr';
+
+      const submitBtn = document.getElementById('submit-btn');
+      submitBtn.innerText = submitLabels[currentLang];
+
+      document.documentElement.lang = currentLang;
+      document.body.dir = (currentLang === 'ar') ? 'rtl' : 'ltr';
+    }
+
+    function updateStarDisplay() {
+      document.querySelectorAll('#star-row .star').forEach(function(star) {
+        const value = Number(star.dataset.value);
+        star.classList.toggle('filled', value <= selectedRatingValue);
+      });
+    }
+
+    function selectStar(value) {
+      selectedRatingValue = value;
+      updateStarDisplay();
+      document.getElementById('submit-btn').disabled = false;
+    }
+
+    function submitRating() {
+      if (!selectedRatingValue) return;
+
+      const submitBtn = document.getElementById('submit-btn');
+      const errorText = document.getElementById('error-text');
+      const comment = document.getElementById('comment-input').value.trim();
+
+      submitBtn.disabled = true;
+      errorText.classList.remove('visible');
+
+      fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "submitRating",
+          rating: selectedRatingValue,
+          comment: comment,
+          language: currentLang,
+          key: APP_SECRET
+        })
+      })
+        .then(function(response) { return response.json(); })
+        .then(function() {
+          document.getElementById('form-view').classList.add('hidden');
+          document.getElementById('thanks-view').classList.add('visible');
+        })
+        .catch(function(error) {
+          console.warn("送出評分失敗：", error);
+          errorText.classList.add('visible');
+          submitBtn.disabled = false;
+        });
+    }
+
+    applyLanguage();
+  </script>
+</body>
+</html>

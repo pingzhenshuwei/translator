@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>平鎮戶政雙向翻譯服務系統</title>
+  <!-- 修正版：改善日文、韓文、越南文等外語轉中文的語音辨識卡住問題 -->
+  <!-- PWA 設定：讓「加入主畫面」後可全螢幕啟動 -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#2c3e50">
+  <!-- iOS Safari 專用：讓「加入主畫面」的捷徑以獨立模式啟動（隱藏網址列） -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="雙向翻譯">
+
+  <style>
+    /* 基礎排版設定 */
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      font-family: "Microsoft JhengHei", "微軟正黑體", sans-serif;
+      background-color: #000000;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      background-color: #000000;
+    }
+
+    /* 上下兩個面板共用設定 */
+    .panel {
+      padding: clamp(8px, 2.5vw, 20px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      position: relative;
+      min-height: 0;
+    }
+
+    /* 民眾端（上方）：置於桌上時朝向對面的民眾，因此整塊翻轉 180 度 */
+    .panel-citizen {
+      flex: 1;
+      background-color: #000000;
+      transform: rotate(180deg);
+    }
+
+    /* 櫃檯人員端（下方）：靠近操作人員這一側，維持正常方向 */
+    .panel-staff {
+      flex: 1;
+      background-color: #000000;
+    }
+
+    /* 中間語言選擇列（不隨面板翻轉，維持正常方向，置於畫面中央） */
+    .lang-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: clamp(6px, 2vw, 12px);
+      padding: clamp(6px, 2vw, 10px) 0;
+      background-color: #000000;
+    }
+
+    .translate-icon {
+      font-size: clamp(1.1em, 4vw, 1.6em);
+      line-height: 1;
+    }
+
+    select {
+      font-size: clamp(0.9em, 3.2vw, 1.3em);
+      padding: clamp(4px, 1.5vw, 8px) clamp(8px, 3vw, 16px);
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      flex-shrink: 0;
+      max-width: 80%;
+    }
+
+    /* 語言選單右邊的平均評分，尚無評分時保持空白不顯示 */
+    .lang-rating-display {
+      color: #FFC107;
+      font-size: clamp(0.85em, 3vw, 1.2em);
+      font-weight: bold;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* 顯示文字的區塊 */
+    .text-box {
+      width: 90%;
+      max-width: 700px;
+      flex: 1;
+      min-height: 0;
+      background: white;
+      border-radius: 15px;
+      padding: clamp(10px, 3vw, 20px);
+      font-size: clamp(1.3em, 6vw, 3.6em);
+      font-weight: bold;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      overflow-y: auto;
+      margin-bottom: clamp(41px, 10vw, 57px);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      line-height: 1.4;
+      word-break: break-word;
+      white-space: pre-line;
+    }
+
+    /* 櫃檯人員對話框文字顏色：藍色 */
+    #staff-text {
+      color: #1565C0;
+    }
+
+    /* 外籍民眾對話框文字顏色：粉紅色 */
+    #citizen-text {
+      color: #D6336C;
+    }
+
+    /* 左下角常駐白色文字標籤 */
+    .corner-label {
+      position: absolute;
+      left: max(5%, calc(50% - 350px)); 
+      bottom: clamp(10px, 3vw, 20px); 
+      color: #ffffff;
+      font-size: clamp(1.3em, 4.6vw, 1.8em);
+      font-weight: bold;
+      opacity: 0.9;
+      z-index: 3;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* 櫃檯端專用：文字標籤跟「翻譯結束」按鈕並排在左下角 */
+    .corner-label-row {
+      position: absolute;
+      left: max(5%, calc(50% - 350px));
+      bottom: clamp(10px, 3vw, 20px);
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: clamp(8px, 2.5vw, 14px);
+    }
+
+    .corner-label-row .corner-label {
+      position: static;
+      pointer-events: none;
+    }
+
+    /* 民眾端評分：按下「翻譯結束」後蓋住整個畫面的全螢幕遮罩，固定翻轉180度朝向民眾，
+       顯示一個 QR Code，讓民眾改用自己的手機掃描去評分（解決平板螢幕鍵盤語言切換的問題）。 */
+    #citizen-rating-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1200;
+      padding: 20px;
+      box-sizing: border-box;
+      transform: rotate(180deg);
+    }
+
+    #citizen-rating-overlay.visible {
+      display: flex;
+    }
+
+    #citizen-rating-box {
+      position: relative;
+      background: white;
+      border-radius: 20px;
+      padding: clamp(28px, 6vw, 48px) clamp(22px, 5vw, 40px);
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(16px, 3.5vw, 26px);
+    }
+
+    .rating-close-btn {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      background: none;
+      border: none;
+      color: #999;
+      font-size: clamp(1.3em, 4vw, 1.7em);
+      cursor: pointer;
+      line-height: 1;
+      padding: 6px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .rating-label {
+      font-size: clamp(1.1em, 4vw, 1.5em);
+      color: #333;
+      text-align: center;
+      max-width: 100%;
+      font-weight: bold;
+    }
+
+    #rating-qrcode-img {
+      width: clamp(200px, 55vw, 280px);
+      height: clamp(200px, 55vw, 280px);
+      border-radius: 8px;
+    }
+
+    .rating-qr-hint {
+      font-size: clamp(0.85em, 3vw, 1.05em);
+      color: #666;
+    }
+
+    /* 按鈕設計 */
+    .btn {
+      font-size: clamp(1em, 4vw, 1.5em);
+      padding: clamp(10px, 2.5vw, 14px) clamp(24px, 8vw, 40px);
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      color: white;
+      transition: 0.3s;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .btn-floating {
+      position: absolute;
+      right: clamp(10px, 3vw, 20px);
+      bottom: clamp(10px, 3vw, 20px);
+      z-index: 5;
+      margin: 0;
+    }
+
+    .btn-staff {
+      background-color: #1565C0; 
+    }
+
+    .btn-staff:hover {
+      background-color: #0D47A1;
+    }
+
+    .btn-citizen {
+      background-color: #D6336C; 
+    }
+
+    .btn-citizen:hover {
+      background-color: #A92353;
+    }
+
+    .btn.recording {
+      background-color: #f44336;
+      animation: pulse 1.5s infinite;
+    }
+
+    /* 「翻譯結束」按鈕：跟「戶政多語通」文字並排在左下角，按下後在民眾端浮現評價列 */
+    .btn-end-session {
+      background-color: #43A047;
+      border: none;
+      border-radius: 50px;
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+      white-space: nowrap;
+      font-size: clamp(0.7em, 2.6vw, 1em);
+      padding: clamp(6px, 1.8vw, 10px) clamp(14px, 4vw, 22px);
+    }
+
+    .btn-end-session:hover {
+      background-color: #2E7D32;
+    }
+
+    /* 今日 Gemini 使用次數：獨立一排，置中顯示在語言選單跟中文輸入框（櫃檯端）之間 */
+    .daily-success-count {
+      flex-shrink: 0;
+      text-align: center;
+      color: #b0b0b0;
+      font-size: clamp(0.75em, 2.6vw, 1em);
+      font-weight: normal;
+      white-space: nowrap;
+      padding: 2px 0;
+      background-color: #000000;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+
+    #start-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #2c3e50;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      cursor: pointer;
+      text-align: center;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    #start-overlay h1 {
+      font-size: clamp(1.3em, 5vw, 2em);
+      margin-bottom: 20px;
+    }
+
+    #start-overlay p {
+      font-size: clamp(0.9em, 3.5vw, 1.2em);
+      opacity: 0.85;
+    }
+
+    @media (max-width: 480px) {
+      .panel { padding: 6px; }
+    }
+
+    @media (max-height: 420px) {
+      select { font-size: clamp(0.8em, 2.8vw, 1.1em); }
+      .text-box { font-size: clamp(1.1em, 5vw, 2em); padding: 8px; margin-bottom: 38px; }
+      .btn { padding: 8px 20px; }
+      .corner-label { font-size: clamp(1.1em, 4vw, 1.5em); }
+    }
+
+    #office-hours-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #2c3e50;
+      color: white;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      text-align: center;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    #office-hours-overlay h1 {
+      font-size: clamp(1.3em, 5vw, 2em);
+      margin-bottom: 12px;
+    }
+
+    #office-hours-overlay p {
+      font-size: clamp(0.9em, 3.5vw, 1.2em);
+      opacity: 0.85;
+      margin: 4px 0;
+    }
+
+    /* 連續點擊此圖示可解除下班時段限制，擴大點擊區域方便現場操作 */
+    #office-hours-icon {
+      display: inline-block;
+      padding: 12px;
+      margin: -12px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    #pii-warning-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1100;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    #pii-warning-overlay.face-citizen {
+      transform: rotate(180deg);
+    }
+
+    #pii-warning-box {
+      background: white;
+      border-radius: 16px;
+      padding: clamp(16px, 4vw, 28px);
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    #pii-warning-box .pii-icon {
+      font-size: clamp(1.8em, 6vw, 2.4em);
+      margin-bottom: 8px;
+    }
+
+    #pii-warning-box h3 {
+      margin: 0 0 10px 0;
+      color: #c0392b;
+      font-size: clamp(1em, 4vw, 1.3em);
+    }
+
+    #pii-warning-box p {
+      margin: 0 0 18px 0;
+      color: #333;
+      font-size: clamp(0.85em, 3.4vw, 1.05em);
+      line-height: 1.5;
+    }
+
+    .pii-btn-row {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .pii-btn {
+      flex: 1;
+      min-width: 120px;
+      font-size: clamp(0.85em, 3.2vw, 1.05em);
+      padding: clamp(10px, 2.5vw, 14px) clamp(10px, 3vw, 18px);
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      color: white;
+      font-weight: bold;
+    }
+
+    .pii-btn-cancel { background-color: #757575; }
+    .pii-btn-send { background-color: #e53935; }
+  </style>
+</head>
+<body>
+
+  <div id="start-overlay" onclick="startApp()">
+    <h1>👆 請點擊螢幕開始使用</h1>
+    <p>僅支援直式螢幕不支援橫式使用</p>
+  </div>
+
+  <div id="office-hours-overlay">
+    <h1><span id="office-hours-icon" onclick="handleOfficeIconTap()">⏰</span> 目前非服務時間</h1>
+    <p id="office-hours-message">本系統僅開放上班時間使用</p>
+  </div>
+
+  <div id="pii-warning-overlay">
+    <div id="pii-warning-box">
+      <div class="pii-icon">⚠️</div>
+      <h3 id="pii-warning-title">偵測到疑似個人資料</h3>
+      <p id="pii-warning-message">這句話疑似包含姓名、身分證字號、生日或地址等個人資料，建議改用手寫方式填寫。</p>
+      <div class="pii-btn-row">
+        <button class="pii-btn pii-btn-cancel" id="pii-btn-cancel" onclick="cancelPendingTranslation()">本句不傳送</button>
+        <button class="pii-btn pii-btn-send" id="pii-btn-send" onclick="confirmPendingTranslation()">繼續傳送</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="citizen-rating-overlay">
+    <div id="citizen-rating-box">
+      <button class="rating-close-btn" id="rating-close-btn" onclick="closeCitizenRating()">✕</button>
+      <div class="rating-label" id="rating-label">Please scan to rate the translation accuracy</div>
+      <img id="rating-qrcode-img" src="" alt="QR Code">
+      <div class="rating-qr-hint" id="rating-qr-hint">Please scan with your phone camera</div>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- 民眾端 (上方，翻轉180度朝向對面) -->
+    <!-- 修正：onclick 直接動態讀取當前下拉選單的值作為 sourceLang -->
+    <div class="panel panel-citizen">
+      <div class="text-box" id="citizen-text">Tap the button to speak
+Avoid sharing personal info</div>
+      <button class="btn btn-citizen btn-floating" id="btn-citizen" onclick="startRecognition(event, document.getElementById('lang-select').value, 'citizen-text', 'staff-text', 'zh-TW')">
+        Speak
+      </button>
+      <div class="corner-label">戶政多語通</div>
+    </div>
+
+    <!-- 中間語言選擇列 -->
+    <div class="lang-bar">
+      <span class="translate-icon" aria-hidden="true">🌐</span>
+      <select id="lang-select" onchange="updateSpeakLabel(); updateCitizenDefaultText(); updateLangRatingDisplay();">
+        <option value="en">English (英文)</option>
+        <option value="ja">日本語 (日文)</option>
+        <option value="ko">한국어 (韓文)</option>
+        <option value="vi">Tiếng Việt (越南文)</option>
+        <option value="id">Bahasa Indonesia (印尼文)</option>
+        <option value="th">ภาษาไทย (泰文)</option>
+        <option value="fil">Filipino (菲律賓文)</option>
+        <option value="km">ភាសាខ្មែរ (柬埔寨文)</option>
+        <option value="my">မြန်မာဘာသာ (緬甸文)</option>
+        <option value="ar" dir="ltr">‎العربية (阿拉伯文)</option>
+      </select>
+      <span class="lang-rating-display" id="lang-rating-display"></span>
+    </div>
+
+    <div class="daily-success-count" id="daily-success-count">今日已使用：0 次</div>
+
+    <!-- 櫃檯人員端 (下方，正常方向) -->
+    <div class="panel panel-staff">
+      <div class="text-box" id="staff-text">請按下方按鈕開始說話
+交談中請勿透露詳細個資</div>
+      <button class="btn btn-staff btn-floating" id="btn-staff" onclick="startRecognition(event, 'zh-TW', 'staff-text', 'citizen-text', document.getElementById('lang-select').value)">
+        說話
+      </button>
+      <div class="corner-label-row">
+        <div class="corner-label">戶政多語通</div>
+        <button class="btn-end-session" onclick="showCitizenRating()">翻譯結束</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const OFFICE_START = { hour: 7, minute: 30 };
+    const OFFICE_END   = { hour: 17, minute: 30 };
+    const OFFICE_DAYS = [1, 2, 3, 4, 5];
+
+    // 點擊 ⏰ 圖示會跳出密碼輸入，輸入正確密碼即可手動解除下班時段限制，
+    // 供現場臨時加班等情境使用。密碼驗證交給後端 GAS 處理，前端不保存密碼明文。
+    // 解除狀態存在 sessionStorage，只記到「今天的日期」，換日或關閉分頁/瀏覽器後自動失效。
+    const OFFICE_OVERRIDE_STORAGE_KEY = "officeHoursOverrideDate";
+
+    function isManualOverrideActive() {
+      try {
+        return sessionStorage.getItem(OFFICE_OVERRIDE_STORAGE_KEY) === new Date().toDateString();
+      } catch (e) {
+        return false; // 部分無痕模式可能無法使用 sessionStorage，失敗時保守視為未解除
+      }
+    }
+
+    function handleOfficeIconTap() {
+      const input = window.prompt("請輸入通關密碼：");
+      if (input === null) return; // 使用者按取消
+
+      fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "verifyOfficeOverride", password: input, key: APP_SECRET })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.valid) {
+            try {
+              sessionStorage.setItem(OFFICE_OVERRIDE_STORAGE_KEY, new Date().toDateString());
+            } catch (e) {}
+            checkOfficeHours(); // 立即重新判斷一次，馬上解鎖畫面
+          } else {
+            alert("密碼錯誤");
+          }
+        })
+        .catch(error => {
+          console.error("驗證通關密碼時發生錯誤：", error);
+          alert("驗證失敗，請確認網路連線後再試一次。");
+        });
+    }
+
+    function isOfficeHours() {
+      if (isManualOverrideActive()) return true;
+
+      const now = new Date();
+      const day = now.getDay();
+      if (!OFFICE_DAYS.includes(day)) return false;
+
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const startMinutes = OFFICE_START.hour * 60 + OFFICE_START.minute;
+      const endMinutes = OFFICE_END.hour * 60 + OFFICE_END.minute;
+
+      return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+    }
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    function checkOfficeHours() {
+      const overlay = document.getElementById('office-hours-overlay');
+      if (isOfficeHours()) {
+        overlay.style.display = 'none';
+      } else {
+        overlay.style.display = 'flex';
+        document.getElementById('office-hours-message').innerText =
+          `本系統僅開放上班時間使用（週一至週五 ${pad2(OFFICE_START.hour)}:${pad2(OFFICE_START.minute)}–${pad2(OFFICE_END.hour)}:${pad2(OFFICE_END.minute)}）`;
+        try {
+          const btnCitizen = document.getElementById('btn-citizen');
+          const btnStaff = document.getElementById('btn-staff');
+          if (btnCitizen) btnCitizen.classList.remove('recording');
+          if (btnStaff) btnStaff.classList.remove('recording');
+        } catch (e) {}
+      }
+    }
+
+    checkOfficeHours();
+    setInterval(checkOfficeHours, 30000);
+
+    const piiWarningLabels = {
+      "zh-TW": {
+        title: "偵測到疑似個人資料",
+        message: "這句話疑似包含姓名、身分證字號、生日或地址等個人資料，建議改用手寫方式填寫。",
+        cancel: "本句不傳送",
+        send: "繼續傳送"
+      },
+      en: {
+        title: "Possible personal information detected",
+        message: "This sentence may contain a name, ID number, birth date, or address. We suggest writing it by hand instead.",
+        cancel: "Don't send this",
+        send: "Send anyway"
+      },
+      ja: {
+        title: "個人情報の可能性を検出しました",
+        message: "氏名・身分証番号・生年月日・住所などが含まれている可能性があります。手書きでの記入をおすすめします。",
+        cancel: "送信しない",
+        send: "そのまま送信"
+      },
+      ko: {
+        title: "개인정보 가능성이 감지되었습니다",
+        message: "이름, 신분증 번호, 생년월일, 주소 등이 포함되어 있을 수 있습니다. 손으로 직접 작성하는 것을 권장합니다.",
+        cancel: "전송 안 함",
+        send: "그래도 전송"
+      },
+      vi: {
+        title: "Phát hiện có thể chứa thông tin cá nhân",
+        message: "Câu này có thể chứa tên, số CMND/CCCD, ngày sinh hoặc địa chỉ. Nên viết tay thay vì đọc ra.",
+        cancel: "Không gửi câu này",
+        send: "Vẫn gửi"
+      },
+      id: {
+        title: "Terdeteksi kemungkinan data pribadi",
+        message: "Kalimat ini mungkin berisi nama, nomor KTP, tanggal lahir, atau alamat. Sebaiknya tulis tangan saja.",
+        cancel: "Jangan kirim",
+        send: "Tetap kirim"
+      },
+      th: {
+        title: "ตรวจพบข้อมูลส่วนตัวที่อาจปรากฏ",
+        message: "ประโยคนี้อาจมีชื่อ เลขบัตรประชาชน วันเกิด หรือที่อยู่ แนะนำให้เขียนด้วยมือแทน",
+        cancel: "ไม่ส่งประโยคนี้",
+        send: "ส่งต่อไป"
+      },
+      fil: {
+        title: "Natukoy na posibleng personal na impormasyon",
+        message: "Maaaring may pangalan, ID number, kaarawan, o address ang pangungusap na ito. Mas mainam na isulat na lang ito sa kamay.",
+        cancel: "Huwag ipadala",
+        send: "Ipadala pa rin"
+      },
+      km: {
+        title: "រកឃើញព័ត៌មានផ្ទាល់ខ្លួនដែលអាចមាន",
+        message: "ប្រយោគនេះអាចមានឈ្មោះ លេខអត្តសញ្ញាណប័ណ្ណ ថ្ងៃខែឆ្នាំកំណើត ឬអាសយដ្ឋាន។ សូមណែនាំឱ្យសរសេរដោយដៃជំនួសវិញ។",
+        cancel: "កុំផ្ញើ",
+        send: "នៅតែផ្ញើ"
+      },
+      my: {
+        title: "ကိုယ်ရေးအချက်အလက်ဖြစ်နိုင်သည်ကို တွေ့ရှိသည်",
+        message: "ဒီစာကြောင်းတွင် နာမည်၊ ID နံပါတ်၊ မွေးနေ့ (သို့) လိပ်စာ ပါဝင်နိုင်ပါသည်။ လက်ရေးဖြင့် ရေးရန် အကြံပြုပါသည်။",
+        cancel: "မပို့ပါ",
+        send: "ဆက်ပို့မည်"
+      },
+      ar: {
+        title: "احتمال وجود معلومات شخصية",
+        message: "قد تحتوي هذه الجملة على اسم أو رقم هوية أو تاريخ ميلاد أو عنوان. يُفضّل كتابتها يدويًا بدلاً من ذلك.",
+        cancel: "عدم الإرسال",
+        send: "إرسال على أي حال"
+      }
+    };
+
+    const piiKeywords = {
+      "zh-TW": ["姓名", "身分證", "身份證", "身分證字號", "住址", "地址", "戶籍", "出生", "生日", "電話", "手機號碼", "護照號碼", "居留證"],
+      en: ["my name is", "id number", "identity card", "passport number", "date of birth", "birthday", "born on", "address is", "phone number"],
+      ja: ["名前は", "身分証", "パスポート番号", "生年月日", "誕生日", "住所は", "電話番号"],
+      ko: ["제 이름은", "신분증", "여권 번호", "생년월일", "생일", "주소는", "전화번호"],
+      vi: ["tên tôi là", "chứng minh nhân dân", "căn cước công dân", "số hộ chiếu", "ngày sinh", "địa chỉ là", "số điện thoại"],
+      id: ["nama saya", "nomor ktp", "nomor paspor", "tanggal lahir", "alamat saya", "nomor telepon"],
+      th: ["ชื่อของฉันคือ", "บัตรประชาชน", "หมายเลขพาสปอร์ต", "วันเกิด", "ที่อยู่ของฉัน", "เบอร์โทร"],
+      fil: ["ang pangalan ko", "id number", "numero ng pasaporte", "kaarawan", "petsa ng kapanganakan", "address ko", "numero ng telepono"],
+      km: ["ខ្ញុំឈ្មោះ", "អត្តសញ្ញាណប័ណ្ណ", "លេខលិខិតឆ្លងដែន", "ថ្ងៃខែឆ្នាំកំណើត", "អាសយដ្ឋាន", "លេខទូរស័ព្ទ"],
+      my: ["ကျွန်တော့်နာမည်", "ကျွန်မနာမည်", "မှတ်ပုံတင်", "ပတ်စ်ပို့နံပါတ်", "မွေးနေ့", "လိပ်စာ", "ဖုန်းနံပါတ်"],
+      ar: ["اسمي", "رقم الهوية", "رقم جواز السفر", "تاريخ الميلاد", "عنواني", "رقم الهاتف"]
+    };
+
+    function detectPossiblePII(text, langCode) {
+      if (!text) return false;
+      if (/[A-Za-z][12]\d{8}/.test(text)) return true;
+      if (/09\d{2}[-\s]?\d{3}[-\s]?\d{3}/.test(text)) return true;
+      if (/\d[\d\s-]{7,}\d/.test(text)) return true;
+      if (/\d{2,4}\s*[\/\-年]\s*\d{1,2}\s*[\/\-月]\s*\d{1,2}\s*日?/.test(text)) return true;
+
+      const keywords = piiKeywords[langCode] || [];
+      const lowerText = text.toLowerCase();
+      for (const kw of keywords) {
+        if (lowerText.includes(kw.toLowerCase())) return true;
+      }
+      return false;
+    }
+
+    let pendingTranslation = null;
+
+    function showPiiWarning(langCode) {
+      const labels = piiWarningLabels[langCode] || piiWarningLabels.en;
+      document.getElementById("pii-warning-title").innerText = labels.title;
+      document.getElementById("pii-warning-message").innerText = labels.message;
+      document.getElementById("pii-btn-cancel").innerText = labels.cancel;
+      document.getElementById("pii-btn-send").innerText = labels.send;
+      const overlay = document.getElementById("pii-warning-overlay");
+      if (langCode === "zh-TW") {
+        overlay.classList.remove("face-citizen");
+      } else {
+        overlay.classList.add("face-citizen");
+      }
+      overlay.style.display = "flex";
+    }
+
+    function hidePiiWarning() {
+      document.getElementById("pii-warning-overlay").style.display = "none";
+    }
+
+    const noticeNotSentLabels = {
+      "zh-TW": "（此句未傳送）",
+      en: "(Not sent)",
+      ja: "（送信されていません）",
+      ko: "（전송되지 않음）",
+      vi: "(Chưa gửi)",
+      id: "(Tidak dikirim)",
+      th: "(ไม่ได้ส่ง)",
+      fil: "(Hindi ipinadala)",
+      km: "（មិនបានផ្ញើ）",
+      my: "（မပို့ရသေးပါ）",
+      ar: "（لم يتم الإرسال）"
+    };
+
+    function cancelPendingTranslation() {
+      if (pendingTranslation) {
+        const sourceElem = document.getElementById(pendingTranslation.sourceElemId);
+        if (sourceElem) {
+          const notice = noticeNotSentLabels[pendingTranslation.sourceLang] || noticeNotSentLabels["zh-TW"];
+          sourceElem.innerText = pendingTranslation.transcript + " " + notice;
+        }
+        const targetElem = document.getElementById(pendingTranslation.targetElemId);
+        if (targetElem) {
+          targetElem.innerText = "";
+        }
+      }
+      pendingTranslation = null;
+      hidePiiWarning();
+    }
+
+    function confirmPendingTranslation() {
+      if (pendingTranslation) {
+        const { transcript, sourceLang, targetLang, sourceElemId, targetElemId } = pendingTranslation;
+        const translatingText = (targetElemId === 'citizen-text')
+          ? (translatingLabels[targetLang] || "Translating...")
+          : "翻譯中...";
+        document.getElementById(targetElemId).innerText = translatingText;
+        translateText(transcript, sourceLang, targetLang, targetElemId, sourceElemId);
+      }
+      pendingTranslation = null;
+      hidePiiWarning();
+    }
+
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbwelifoH99yjFvjMIY_vraVf4LiRxypJ1-wKAWXQy1wJussTI58GALefPker17Lqlg/exec";
+    const APP_SECRET = "bc2ebd814749b213873005714e87af6d";
+
+    function updateDailySuccessCount(count) {
+      const el = document.getElementById("daily-success-count");
+      if (el && Number.isFinite(Number(count))) {
+        el.innerText = "今日已使用：" + Number(count) + " 次";
+      }
+    }
+
+    function loadDailySuccessCount() {
+      fetch(GAS_URL + "?action=dailySuccessCount&key=" + encodeURIComponent(APP_SECRET))
+        .then(response => response.json())
+        .then(data => {
+          if (typeof data.dailySuccessCount !== "undefined") {
+            updateDailySuccessCount(data.dailySuccessCount);
+          }
+        })
+        .catch(error => console.warn("讀取今日成功使用次數失敗：", error));
+    }
+
+    // 各語言累計平均評分的快取，key 是語言代碼，value 是平均分數（例如 4.8）；
+    // 沒有評分過的語言不會出現在這個物件裡。
+    let languageRatingStats = {};
+
+    function updateLangRatingDisplay() {
+      const el = document.getElementById('lang-rating-display');
+      if (!el) return;
+      const lang = document.getElementById('lang-select').value;
+      const avg = languageRatingStats[lang];
+      el.innerText = (typeof avg === 'number') ? (avg.toFixed(1) + "/5") : "";
+    }
+
+    function loadLanguageRatingStats() {
+      fetch(GAS_URL + "?action=languageRatingStats&key=" + encodeURIComponent(APP_SECRET))
+        .then(response => response.json())
+        .then(data => {
+          languageRatingStats = data || {};
+          updateLangRatingDisplay();
+        })
+        .catch(error => console.warn("讀取語言評分統計失敗：", error));
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js').catch(function(err) {
+          console.warn('Service worker 註冊失敗：', err);
+        });
+      });
+    }
+
+    // 完整的語音辨識語系對應表
+    const recognitionLangMap = {
+      "zh-TW": "zh-TW",
+      en: "en-US",
+      ja: "ja-JP",
+      ko: "ko-KR",
+      vi: "vi-VN",
+      id: "id-ID",
+      th: "th-TH",
+      fil: "fil-PH",
+      km: "km-KH",
+      my: "my-MM",
+      ar: "ar-SA"
+    };
+
+    const speakLabels = {
+      en: "Speak",
+      ja: "話す",
+      ko: "말하기",
+      vi: "Nói",
+      id: "Bicara",
+      th: "พูด",
+      fil: "Magsalita",
+      km: "និយាយ",
+      my: "ပြောပါ",
+      ar: "تحدث"
+    };
+
+    const recordingLabels = {
+      en: "Listening...",
+      ja: "収音中...",
+      ko: "듣는 중...",
+      vi: "Đang nghe...",
+      id: "Mendengarkan...",
+      th: "กำลังฟัง...",
+      fil: "Nakikinig...",
+      km: "កំពុងស្តាប់...",
+      my: "နားထောင်နေသည်...",
+      ar: "جارٍ الاستماع..."
+    };
+
+    const translatingLabels = {
+      en: "Translating...",
+      ja: "翻訳中...",
+      ko: "번역 중...",
+      vi: "Đang dịch...",
+      id: "Menerjemahkan...",
+      th: "กำลังแปล...",
+      fil: "Isinasalin...",
+      km: "កំពុងបកប្រែ...",
+      my: "ဘာသာပြန်နေသည်...",
+      ar: "جارٍ الترجمة..."
+    };
+
+    const privacyLabels = {
+      en: "Avoid sharing personal info",
+      ja: "詳しい個人情報は共有しないでください",
+      ko: "개인정보를 자세히 공유하지 마세요",
+      vi: "Vui lòng không chia sẻ thông tin cá nhân chi tiết",
+      id: "Mohon jangan bagikan data pribadi secara rinci",
+      th: "กรุณาอย่าให้ข้อมูลส่วนตัวโดยละเอียด",
+      fil: "Huwag ibahagi ang detalyadong personal na impormasyon",
+      km: "សូមកុំបញ្ចេញព័ត៌មានផ្ទាល់ខ្លួនលម្អិត",
+      my: "ကိုယ်ရေးအချက်အလက်အသေးစိတ် မမျှဝေပါနှင့်",
+      ar: "يرجى تجنب مشاركة المعلومات الشخصية التفصيلية"
+    };
+
+    const speakInstructionLabels = {
+      en: "Tap the button to speak",
+      ja: "ボタンを押して話してください",
+      ko: "버튼을 눌러 말씀해주세요",
+      vi: "Nhấn nút để nói",
+      id: "Ketuk tombol untuk berbicara",
+      th: "แตะปุ่มเพื่อพูด",
+      fil: "Pindutin ang button para magsalita",
+      km: "ចុចប៊ូតុងដើម្បីនិយាយ",
+      my: "စကားပြောရန် ခလုတ်ကိုနှိပ်ပါ",
+      ar: "اضغط على الزر للتحدث"
+    };
+
+    // 掃描評分提示文字／手機掃描提示文字，依民眾當下選定的語言顯示
+    const ratingPromptLabels = {
+      "zh-TW": "請掃描評分本次翻譯準確度",
+      en: "Please scan to rate the translation accuracy",
+      ja: "翻訳の正確さを評価するにはスキャンしてください",
+      ko: "번역 정확도를 평가하려면 스캔해 주세요",
+      vi: "Vui lòng quét mã để đánh giá độ chính xác của bản dịch",
+      id: "Silakan pindai untuk menilai keakuratan terjemahan",
+      th: "กรุณาสแกนเพื่อให้คะแนนความถูกต้องของการแปล",
+      fil: "Paki-scan para i-rate ang katumpakan ng pagsasalin",
+      km: "សូមស្កេនដើម្បីវាយតម្លៃភាពត្រឹមត្រូវនៃការបកប្រែ",
+      my: "ဘာသာပြန်ဆိုမှု၏ တိကျမှုကို အဆင့်သတ်မှတ်ရန် စကင်ဖတ်ပါ",
+      ar: "يرجى المسح لتقييم دقة الترجمة"
+    };
+
+    const ratingQrHintLabels = {
+      "zh-TW": "請用手機相機掃描",
+      en: "Please scan with your phone camera",
+      ja: "スマートフォンのカメラでスキャンしてください",
+      ko: "휴대폰 카메라로 스캔해 주세요",
+      vi: "Vui lòng quét bằng camera điện thoại",
+      id: "Silakan pindai dengan kamera ponsel Anda",
+      th: "กรุณาสแกนด้วยกล้องโทรศัพท์ของคุณ",
+      fil: "Paki-scan gamit ang camera ng iyong telepono",
+      km: "សូមស្កេនដោយប្រើកាមេរ៉ាទូរស័ព្ទរបស់អ្នក",
+      my: "ဖုန်းကင်မရာဖြင့် စကင်ဖတ်ပါ",
+      ar: "يرجى المسح باستخدام كاميرا هاتفك"
+    };
+
+    let ratingHideTimeoutId = null;
+
+    // 評分頁面的基準網址：民眾手機掃描 QR Code 後打開的頁面。
+    // 跟 index.html 部署在同一個網址下（GitHub Pages），如果之後搬家記得改這裡。
+    const RATING_PAGE_URL = "https://iamjerrylu-code.github.io/translate-system/rating.html";
+
+    // 按下「翻譯結束」時呼叫，蓋住整個畫面顯示 QR Code，讓民眾改用自己的手機掃描評分
+    // （平板螢幕鍵盤沒辦法自動切換成民眾的語言，改用民眾自己手機上原生就有的輸入法就沒這個問題）。
+    // 如果畫面已經開著（例如不小心按了兩次），就不要重置。
+    function showCitizenRating() {
+      const overlay = document.getElementById('citizen-rating-overlay');
+      const label = document.getElementById('rating-label');
+      const qrImg = document.getElementById('rating-qrcode-img');
+      const hint = document.getElementById('rating-qr-hint');
+      if (!overlay || !label || !qrImg) return;
+      if (overlay.classList.contains('visible')) return;
+
+      const lang = document.getElementById('lang-select').value;
+      label.innerText = ratingPromptLabels[lang] || ratingPromptLabels.en;
+      if (hint) hint.innerText = ratingQrHintLabels[lang] || ratingQrHintLabels.en;
+
+      const targetUrl = RATING_PAGE_URL + "?lang=" + encodeURIComponent(lang);
+      qrImg.src = "https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=" + encodeURIComponent(targetUrl);
+
+      clearTimeout(ratingHideTimeoutId);
+      overlay.classList.add('visible');
+    }
+
+    // 民眾／櫃檯人員點右上角 ✕ 關閉 QR Code 畫面。
+    // 這通常代表這輪服務已經徹底結束，順便把兩邊的對話框重置回剛開機時的
+    // 預設提示文字，準備迎接下一位民眾，不會讓上一輪的對話內容留在畫面上。
+    function closeCitizenRating() {
+      const overlay = document.getElementById('citizen-rating-overlay');
+      if (overlay) overlay.classList.remove('visible');
+      clearTimeout(ratingHideTimeoutId);
+      resetConversationDisplay();
+    }
+
+    // 把櫃檯端、民眾端的對話框都重置回預設提示文字，語言選單也一併重置回預設值，
+    // 完全回到剛開機時的初始狀態
+    function resetConversationDisplay() {
+      const staffBox = document.getElementById('staff-text');
+      if (staffBox) {
+        staffBox.innerText = "請按下方按鈕開始說話\n交談中請勿透露詳細個資";
+      }
+
+      const langSelect = document.getElementById('lang-select');
+      if (langSelect) {
+        langSelect.value = "en"; // 語言選單的第一個選項，作為預設值
+      }
+
+      citizenBoxIsDefault = true;
+      updateSpeakLabel();
+      updateCitizenDefaultText();
+      updateLangRatingDisplay();
+    }
+
+    let citizenBoxIsDefault = true;
+
+    // 民眾端文字框方向控制：阿拉伯文需要由右至左顯示，其他語言維持原本的由左至右。
+    function setCitizenTextDirection(langCode) {
+      const box = document.getElementById('citizen-text');
+      if (box) box.dir = (langCode === 'ar') ? 'rtl' : 'ltr';
+    }
+
+    function updateSpeakLabel() {
+      const lang = document.getElementById('lang-select').value;
+      const btn = document.getElementById('btn-citizen');
+      if (!btn.classList.contains('recording')) {
+        btn.innerText = speakLabels[lang] || "Speak";
+      }
+    }
+
+    function updateCitizenDefaultText() {
+      const lang = document.getElementById('lang-select').value;
+      setCitizenTextDirection(lang);
+      if (!citizenBoxIsDefault) return;
+      const instruction = speakInstructionLabels[lang] || speakInstructionLabels.en;
+      const privacy = privacyLabels[lang] || privacyLabels.en;
+      document.getElementById('citizen-text').innerText = instruction + "\n" + privacy;
+    }
+
+    updateSpeakLabel();
+    updateCitizenDefaultText();
+    loadDailySuccessCount();
+    loadLanguageRatingStats();
+    // 評分現在是在民眾手機上完成，平板不會像過去那樣「送出當下」立刻知道要刷新，
+    // 改成每 2 分鐘自動重新抓一次，讓黃色平均分數不會放太久沒更新。
+    setInterval(loadLanguageRatingStats, 120000);
+
+    // 判斷目前是不是已經在「真正的全螢幕」模式下執行（連狀態列都隱藏的那種）。
+    // 注意：這裡刻意不把 standalone 算進去——Android 上 PWA 即使 manifest 設定了
+    // fullscreen，Chrome 實際上也常常只給到 standalone（沒有網址列，但畫面最上面
+    // 的狀態列，時間、電量那排，還是會留著），這樣不算是我們要的「真正全螢幕」。
+    // 只有偵測到真正的 fullscreen 模式才跳過下面的 JS 全螢幕 API，其餘情況
+    // （包含 standalone）都還是會呼叫 requestFullscreen() 當保底。
+    function isRunningFullscreen() {
+      return (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches);
+    }
+
+    function startApp() {
+      // 優先依賴 manifest.json 的 "display": "fullscreen"（PWA 加入主畫面後啟動就是全螢幕，
+      // 沒有退出全螢幕的提示）。如果偵測到目前並不是那種模式，才退回呼叫 requestFullscreen()
+      // 當保底，確保無論如何都至少有全螢幕可以用。
+      if (!isRunningFullscreen()) {
+        const el = document.documentElement;
+        const requestFS = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (requestFS) {
+          try {
+            const promise = requestFS.call(el);
+            if (promise && promise.catch) {
+              promise.catch(err => console.warn("無法進入全螢幕：", err));
+            }
+          } catch (err) {
+            console.warn("呼叫全螢幕 API 發生例外：", err);
+          }
+        }
+      }
+
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('portrait').catch(err => console.warn("無法鎖定螢幕方向：", err));
+      }
+
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        // 嘗試放寬瀏覽器對音訊的自動處理（部分 Android 裝置的降噪/回音消除
+        // 預設會把稍微小聲或有距離的人聲一併濾掉，關閉後有機會讓收音更靈敏）。
+        // 注意：這組參數是否真的生效、以及是否會被 SpeechRecognition 內部
+        // 沿用，依廠牌與 Chrome 版本而異，並非保證有效，僅為低風險的嘗試。
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: true
+          }
+        })
+          .then(function(stream) {
+            stream.getTracks().forEach(function(track) { track.stop(); });
+          })
+          .catch(function(err) {
+            console.warn("麥克風權限請求失敗或被拒絕：", err);
+          });
+      }
+
+      document.getElementById("start-overlay").style.display = "none";
+    }
+
+    // 說話中間可以停頓幾秒還不會被判定為講完；瀏覽器內建的停頓判斷通常只有 1~2 秒，
+    // 且沒有開放 API 可以調整，所以改用 continuous 模式 + 自己的計時器來控制這個秒數。
+    const SPEECH_PAUSE_TOLERANCE_MS = 3000;
+    // 完全沒偵測到任何聲音時的保險逾時（沿用原本設計，避免畫面永久卡在「收音中」）
+    const SPEECH_NO_INPUT_TIMEOUT_MS = 12000;
+
+    function startRecognition(evt, sourceLang, sourceElemId, targetElemId, targetLang) {
+      if (!SpeechRecognition) {
+        alert("您的瀏覽器不支援語音辨識，建議使用最新版 Chrome 瀏覽器。");
+        return;
+      }
+
+      // 民眾端每次按下按鈕時，都重新讀取目前選定語言。
+      // 避免切換日文、韓文等語言後，仍沿用先前的辨識語系。
+      if (sourceElemId === 'citizen-text') {
+        sourceLang = document.getElementById('lang-select').value;
+        targetLang = 'zh-TW';
+      }
+
+      const recognition = new SpeechRecognition();
+      const recognitionLang = recognitionLangMap[sourceLang] || sourceLang;
+
+      recognition.lang = recognitionLang;
+      recognition.interimResults = true; // 開啟即時暫時結果，作為引擎提早結束時的備案
+      // 改為 true：不要讓瀏覽器一偵測到短暫停頓就整個結束，
+      // 改由下面自訂的靜音計時器（SPEECH_PAUSE_TOLERANCE_MS）決定何時算講完。
+      recognition.continuous = true;
+      recognition.maxAlternatives = 1;
+
+      const btn = evt.currentTarget;
+      const originalText = btn.innerText;
+      let gotResult = false;
+      let finished = false;
+      let noInputTimeoutId = null;      // 完全沒聲音的保險逾時
+      let pauseTimeoutId = null;        // 說話中途停頓的判定計時器
+      let finalHandled = false;         // 是否已經處理過「最終(final)結果」
+      let accumulatedFinalTranscript = ""; // 連續模式下，已確定(final)的內容會分好幾段送來，這裡累加起來
+      let lastInterimTranscript = "";   // 最後一次收到的暫時(interim)辨識文字，作為備案
+      let errorHandled = false;         // 是否已經由 onerror 顯示過錯誤訊息
+
+      if (sourceElemId === 'citizen-text' || targetElemId === 'citizen-text') {
+        citizenBoxIsDefault = false;
+      }
+
+      function getListeningLabel(lang) {
+        return (lang === 'zh-TW') ? "收音中..." : (recordingLabels[lang] || "Listening...");
+      }
+
+      function restoreButton() {
+        btn.classList.remove("recording");
+        // 語言可能已切換，因此民眾端恢復目前語言的按鈕名稱
+        if (sourceElemId === 'citizen-text') {
+          const currentLang = document.getElementById('lang-select').value;
+          btn.innerText = speakLabels[currentLang] || "Speak";
+        } else {
+          btn.innerText = originalText;
+        }
+      }
+
+      function clearNoInputTimeout() {
+        if (noInputTimeoutId) {
+          clearTimeout(noInputTimeoutId);
+          noInputTimeoutId = null;
+        }
+      }
+
+      function clearPauseTimeout() {
+        if (pauseTimeoutId) {
+          clearTimeout(pauseTimeoutId);
+          pauseTimeoutId = null;
+        }
+      }
+
+      // 每次收到新的辨識結果（不管是暫時還是最終）就重新起算，
+      // 超過 SPEECH_PAUSE_TOLERANCE_MS 都沒有新結果，才主動結束收音。
+      function resetPauseTimeout() {
+        clearPauseTimeout();
+        pauseTimeoutId = setTimeout(function() {
+          try { recognition.stop(); } catch (e) {}
+        }, SPEECH_PAUSE_TOLERANCE_MS);
+      }
+
+      btn.classList.add("recording");
+      btn.innerText = getListeningLabel(sourceLang);
+      document.getElementById(sourceElemId).innerText = getListeningLabel(sourceLang);
+
+      // 部分 Chrome / Android 裝置在非英文語系可能不觸發 speechend，
+      // 因此加入保險逾時，避免完全沒講話時畫面永久卡在「收音中」。
+      noInputTimeoutId = setTimeout(function() {
+        if (finished || gotResult) return;
+        errorHandled = true;
+        try { recognition.stop(); } catch (e) {}
+        document.getElementById(sourceElemId).innerText =
+          (sourceLang === 'zh-TW')
+            ? "未偵測到語音，請再按一次並靠近麥克風說話。"
+            : "未偵測到語音，請再按一次並以所選語言說話。";
+        restoreButton();
+      }, SPEECH_NO_INPUT_TIMEOUT_MS);
+
+      recognition.onstart = function() {
+        console.log("語音辨識已啟動，語系：", recognitionLang);
+      };
+
+      // 處理最終辨識結果：個資偵測 + 翻譯，統一由這裡處理，
+      // 不論是正常累積到的 final 結果、還是引擎提早結束時用暫時結果當備案，都走同一條路。
+      function finalizeTranscript(transcript) {
+        if (finalHandled) return; // 避免同一次收音被處理兩次
+        finalHandled = true;
+
+        if (!transcript) {
+          document.getElementById(sourceElemId).innerText = "未取得辨識文字，請再試一次。";
+          return;
+        }
+
+        document.getElementById(sourceElemId).innerText = transcript;
+
+        if (detectPossiblePII(transcript, sourceLang)) {
+          pendingTranslation = {
+            transcript,
+            sourceLang,
+            targetLang,
+            sourceElemId,
+            targetElemId
+          };
+          showPiiWarning(sourceLang);
+          return;
+        }
+
+        const translatingText = (targetElemId === 'citizen-text')
+          ? (translatingLabels[targetLang] || "Translating...")
+          : "翻譯中...";
+
+        document.getElementById(targetElemId).innerText = translatingText;
+        translateText(transcript, sourceLang, targetLang, targetElemId, sourceElemId);
+      }
+
+      recognition.onresult = function(event) {
+        gotResult = true;
+        clearNoInputTimeout();
+        resetPauseTimeout(); // 收到新結果，代表使用者還在講，重新起算停頓計時
+
+        if (!event.results || !event.results.length) {
+          document.getElementById(sourceElemId).innerText = "未取得辨識結果，請再試一次。";
+          return;
+        }
+
+        // continuous 模式下，一次收音過程可能累積出好幾段 final 結果
+        // （例如講到一半停頓一下、又繼續講下一句），這裡把所有已確定的
+        // 片段串接起來，最後再接上目前正在辨識中的暫時結果，畫面上才會是完整一句話。
+        let combinedFinal = "";
+        let lastAppendedSegment = "";
+        let latestInterim = "";
+
+        for (let i = 0; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (!result || !result[0]) continue;
+          const segment = result[0].transcript.trim();
+          if (!segment) continue;
+
+          if (result.isFinal) {
+            // 部分 Android 裝置在 continuous 模式下，偶爾會在內部悄悄重啟辨識工作階段，
+            // 重啟後把前面已經回報過的同一段話再重複回報一次。這裡跳過「內容跟前一段
+            // 完全一樣」的重複片段，避免畫面顯示、翻譯出現同一句話重複兩三次。
+            if (segment.toLowerCase() === lastAppendedSegment.toLowerCase()) continue;
+            combinedFinal += (combinedFinal ? " " : "") + segment;
+            lastAppendedSegment = segment;
+          } else {
+            latestInterim = segment;
+          }
+        }
+
+        accumulatedFinalTranscript = combinedFinal;
+        lastInterimTranscript = latestInterim;
+
+        const displayText = combinedFinal + (latestInterim ? (combinedFinal ? " " : "") + latestInterim : "");
+        if (displayText) {
+          document.getElementById(sourceElemId).innerText = displayText;
+        }
+      };
+
+      recognition.onnomatch = function() {
+        clearNoInputTimeout();
+        clearPauseTimeout();
+        errorHandled = true;
+        document.getElementById(sourceElemId).innerText =
+          "聽到聲音，但無法辨識內容，請說慢一點再試一次。";
+      };
+
+      recognition.onspeechend = function() {
+        // continuous 模式下不在這裡主動 stop()，改由上面的停頓計時器
+        // （resetPauseTimeout）決定何時真正結束，避免中途停頓就被切斷。
+        console.log("偵測到語音暫時停止（可能只是句子中間的停頓）");
+      };
+
+      recognition.onerror = function(event) {
+        clearNoInputTimeout();
+        clearPauseTimeout();
+        errorHandled = true;
+        console.error("語音辨識錯誤：", event.error, "；語系：", recognitionLang);
+
+        const friendlyErrors = {
+          "no-speech": "沒有偵測到聲音，請再試一次。",
+          "audio-capture": "無法使用麥克風，請確認裝置的麥克風權限。",
+          "not-allowed": "麥克風或語音辨識權限被拒絕，請至瀏覽器設定開啟權限。",
+          "service-not-allowed": "瀏覽器的語音辨識服務目前無法使用。",
+          "aborted": "語音辨識已中斷，請再試一次。",
+          "network": "語音辨識服務連線異常，請確認網路後再試一次。",
+          "language-not-supported": "目前裝置或瀏覽器不支援所選語言的語音辨識。"
+        };
+
+        document.getElementById(sourceElemId).innerText =
+          friendlyErrors[event.error] ||
+          ("語音辨識失敗（" + event.error + "），請再試一次。");
+
+        restoreButton();
+      };
+
+      recognition.onend = function() {
+        finished = true;
+        clearNoInputTimeout();
+        clearPauseTimeout();
+        console.log("語音辨識結束；語系：", recognitionLang, "；是否取得結果：", gotResult);
+
+        if (!finalHandled && accumulatedFinalTranscript) {
+          finalizeTranscript(accumulatedFinalTranscript);
+        } else if (!finalHandled && lastInterimTranscript) {
+          // 引擎有時會在還沒送出 final 結果前就結束，這種情況下如果之前有
+          // 暫時(interim)結果，就用它當備案繼續翻譯，避免整句話被吃掉。
+          finalizeTranscript(lastInterimTranscript);
+        } else if (!finalHandled && !errorHandled) {
+          // 完全沒有觸發過 onresult、onerror、onnomatch，也還沒被保險逾時處理過，
+          // 避免畫面卡在「聆聽中...」不動。
+          document.getElementById(sourceElemId).innerText = "沒有偵測到語音，請再試一次。";
+        }
+
+        restoreButton();
+      };
+
+      try {
+        recognition.start();
+      } catch (err) {
+        clearNoInputTimeout();
+        clearPauseTimeout();
+        console.error("啟動語音辨識發生例外：", err);
+        document.getElementById(sourceElemId).innerText =
+          "無法啟動語音辨識，請稍候再試一次。";
+        restoreButton();
+      }
+    }
+
+    function translateText(text, source, target, targetElemId, sourceElemId) {
+      const controller = new AbortController();
+      // 15 秒逾時保護：避免 GAS／Gemini 端無回應時，畫面永遠卡在「翻譯中...」
+      const timeoutId = setTimeout(function() { controller.abort(); }, 15000);
+
+      fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ text, source, target, key: APP_SECRET }),
+        signal: controller.signal
+      })
+        .then(response => response.json())
+        .then(data => {
+          clearTimeout(timeoutId);
+
+          // 若後端有回傳「修正後的原文」（語音辨識同音字校對，例如
+          // 「規劃證書」→「歸化證書」），一併更新來源端顯示的文字，
+          // 避免螢幕上留著明顯錯誤的同音字讓櫃檯人員心生疑慮。
+          if (sourceElemId && data.corrected) {
+            const sourceElem = document.getElementById(sourceElemId);
+            if (sourceElem) sourceElem.innerText = data.corrected;
+          }
+
+          if (typeof data.dailySuccessCount !== "undefined") {
+            updateDailySuccessCount(data.dailySuccessCount);
+          }
+
+          document.getElementById(targetElemId).innerText = data.translated;
+        })
+        .catch(error => {
+          clearTimeout(timeoutId);
+          console.error('Error:', error);
+          document.getElementById(targetElemId).innerText =
+            (error.name === 'AbortError') ? "翻譯逾時，請再試一次。" : "連線翻譯伺服器發生錯誤";
+        });
+    }
+  </script>
+</body>
+</html>
